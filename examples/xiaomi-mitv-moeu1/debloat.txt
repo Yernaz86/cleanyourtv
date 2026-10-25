@@ -1,0 +1,59 @@
+# Xiaomi MiTV-MOEU1 (codename lalaland), Android TV 14 (SDK 34; Android TV home, not Google TV), RU-region
+# firmware UKN1.240806.017.V816.0.25.6.4.UOEMBTV. MediaTek, ro.adb.secure=1. Used in Kazakhstan, on Ethernet.
+# Stock launcher: com.google.android.tvlauncher, with com.google.android.tvrecommendations behind its rows.
+# Live TV app: com.mitv.livetv, which the launcher's Inputs menu hands HDMI 1-3 and Live TV to.
+#
+# Apply:   tools\disable.ps1 -TvHost <tv ip> examples\xiaomi-mitv-moeu1\debloat.txt
+# Undo:    tools\restore.ps1 -TvHost <tv ip> examples\xiaomi-mitv-moeu1\debloat.txt
+#          (or TV_HOST=<tv ip> tools/disable.sh and tools/restore.sh with the same list)
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Tested: disabled in three batches with a screenshot after each, rebooted once (nothing came back), the
+# launcher from launcher/ installed and owning Home, every remote button pressed on the real remote (they are
+# routed by mitv.service, so none needed remapping), Inputs lists HDMI 1-3 and Live TV, and the Google system
+# update check still succeeds. A first-day report, not the few days of living with it CONTRIBUTING.md asks for.
+#
+# HOME: only tvlauncher and Settings' FallbackHome claim Home here; setupwraith does not, so it stays enabled.
+# Netflix (from Play) answers -13, and -12 after its data is cleared, on this RU-region firmware: Widevine L1
+# works and its servers answer, but they hand it no configuration. It is not caused by anything below.
+#
+# DO NOT DISABLE on this model, checked with dumpsys on the unit:
+#   mitv.service, com.mitv.overseaservice           remote keys (Settings, Input, app buttons), Bluetooth remote
+#   com.mediatek.tv.agent, com.mediatek.tis          power, global hotkeys, the HDMI, AV and tuner inputs
+#   com.mitv.livetv, com.mitv.livetv.ci_mediatek     Live TV and HDMI playback
+#   com.mediatek.extservice, com.mediatek.AIPQDisplay, com.dolby.android.audio.service   picture and sound
+#   com.xiaomi.tvqs.overseas.y24                     quick settings panel
+#   com.mi.bluetooth, com.xiaomi.android.tvsetup.partnercustomizer   remote pairing
+#   com.mitv.setup                                   channel scan
+# Left alone, purpose unclear but they hold HDMI or CEC access: com.xiaomi.mitv.scenemode, com.mitv.toolhouse,
+# com.mediatek.network, com.mediatek.browservice. Never open mediatek.factorymenu.ui.
+# Kept by request: Google Assistant (katniss), Chromecast (mediashell, com.mediatek.dialservice), Miracast and
+# Xiaomi casting (com.xiaomi.wfdsinkhelperservice, com.xiaomi.mitv.smartshare, com.xiaomi.mi_connect_service),
+# the preloaded apps, and firmware updates (com.mitv.upgrader, com.xiaomi.mitv.updateservice,
+# com.mediatek.tv.systemupdater).
+# Disabled by the factory already (a DVB set): the ISDB and ATSC tuners and com.iwedia.tvinput.
+
+# Telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# Content, ads and recommendations
+com.mitv.tvhome.michannel                    # recommendation channels, Firebase
+com.mitv.tvhome.mitvplus                     # Xiaomi TV+ promo banners
+com.mitv.tvhome.atv                          # PatchWall banner tiles
+com.xm.webcontent
+android.autoinstalls.config.google.gtvpai    # Play auto-installs
+android.autoinstalls.config.xiaomi.river     # Xiaomi auto-installs
+
+# Background
+com.xiaomi.mitv.tvmanager                    # cleaner with Firebase analytics
+tv.mopa.ginga                                # Ginga, Brazilian ISDB-Tb interactive TV middleware
+com.mediatek.calman                          # Calman calibration client
+
+# The stock home's recommendation rows (Kinopoisk promos among them); useless once the new launcher owns Home
+com.google.android.tvrecommendations
+
+# Stock launcher; build-and-install disables it once the new launcher owns Home
+# com.google.android.tvlauncher
