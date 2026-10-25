@@ -2,6 +2,7 @@ package com.gathin.tvhome;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -25,6 +26,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -45,6 +47,8 @@ final class WatchNext {
     private static final int BACKDROP_W = 1920, BACKDROP_H = 1080;
     /** A poster larger than this is not an image an app meant for a TV row; it is not downloaded. */
     private static final int MAX_POSTER_BYTES = 2 * 1024 * 1024;
+    /** Programmes the owner took out of the row (hold OK, Remove), by tile key. Home's own list only. */
+    private static final String HIDDEN_PREFS = "watch_next_hidden", HIDDEN_KEYS = "keys";
 
     static final class Item {
         final String pkg;
@@ -114,7 +118,9 @@ final class WatchNext {
         PackageManager pm = ctx.getPackageManager();
         List<AppAdapter.Entry> row = new ArrayList<>();
         Set<String> components = new HashSet<>(), posters = new HashSet<>();
-        for (Item item : read(ctx)) {
+        List<Item> items = read(ctx);
+        Set<String> hidden = keepHidden(ctx, items);
+        for (Item item : items) {
             if (row.size() >= max) break;
             if (item.pkg == null || item.title == null || item.intent == null) continue;
             ApplicationInfo app;
@@ -123,7 +129,8 @@ final class WatchNext {
             } catch (PackageManager.NameNotFoundException e) {
                 continue;
             }
-            ComponentName component = new ComponentName(item.pkg, TILE + Integer.toHexString(item.intent.hashCode()));
+            ComponentName component = component(item);
+            if (hidden.contains(component.flattenToShortString())) continue;
             if (!components.add(component.flattenToShortString())) continue;   // two rows for the same programme
             if (item.poster != null) {
                 posters.add(cacheName(item.poster));
@@ -154,6 +161,37 @@ final class WatchNext {
         }
         prune(ctx, posters);
         return row;
+    }
+
+    /** A programme's tile key: its app, and its intent URI, which names the episode it opens. */
+    private static ComponentName component(Item item) {
+        return new ComponentName(item.pkg, TILE + Integer.toHexString(item.intent.hashCode()));
+    }
+
+    /**
+     * Keeps a programme out of the row from now on. Only Home's copy: the app's own list is untouched, and a new
+     * episode of the same series (another intent URI) comes back on its own.
+     */
+    static void hide(Context ctx, String key) {
+        SharedPreferences prefs = ctx.getSharedPreferences(HIDDEN_PREFS, Context.MODE_PRIVATE);
+        Set<String> keys = new HashSet<>(prefs.getStringSet(HIDDEN_KEYS, Collections.emptySet()));
+        keys.add(key);
+        prefs.edit().putStringSet(HIDDEN_KEYS, keys).apply();
+    }
+
+    /** The hidden keys still in the provider; the rest (the app dropped them too) are forgotten, so the set stays small. */
+    private static Set<String> keepHidden(Context ctx, List<Item> items) {
+        SharedPreferences prefs = ctx.getSharedPreferences(HIDDEN_PREFS, Context.MODE_PRIVATE);
+        Set<String> hidden = prefs.getStringSet(HIDDEN_KEYS, Collections.emptySet());
+        if (hidden.isEmpty()) return hidden;
+        Set<String> present = new HashSet<>();
+        for (Item item : items) {
+            if (item.pkg != null && item.intent != null) present.add(component(item).flattenToShortString());
+        }
+        Set<String> kept = new HashSet<>(hidden);
+        kept.retainAll(present);
+        if (kept.size() != hidden.size()) prefs.edit().putStringSet(HIDDEN_KEYS, kept).apply();
+        return kept;
     }
 
     /** What the row shows, to skip redrawing Home when nothing changed since the last read. */

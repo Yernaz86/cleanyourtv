@@ -148,4 +148,6 @@
     <!-- Continue watching shelf: time left of the programme. -->
     <string name="watch_left_minutes">Осталось %1$d мин</string>
     <string name="watch_left_hours">Осталось %1$d ч %2$d мин</string>
+    <!-- Hold OK on a Continue watching tile: takes it out of Home's row (the app's own list is untouched). -->
+    <string name="watch_remove">Убрать из «Продолжить просмотр»</string>
 </resources>

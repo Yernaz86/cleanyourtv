@@ -202,6 +202,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean continueWatching;
     private volatile boolean watchLoading;
     private String watchSignature = "";
+    /** The Continue watching tiles Home shows now, so one can be taken out without reading the provider again. */
+    private List<AppAdapter.Entry> watchRow = Collections.emptyList();
     /** The shelf a Continue watching tile shows while it has focus: backdrop, scrim, its app and title. */
     private ImageView watchArt;
     private View watchScrim, watchShelf;
@@ -853,6 +855,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 watchLoading = false;
                 if (isDestroyed() || signature.equals(watchSignature)) return;
                 watchSignature = signature;
+                watchRow = shown;
                 // The row can land after the owner has moved: keep focus on the tile it was on, not where the
                 // rebind would leave it.
                 int focused = focusedTilePosition();
@@ -1837,6 +1840,52 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             }
         }
         showWatchArt(e.artUri);
+    }
+
+    /** Hold OK on a Continue watching tile: a glass menu under it, the same as the Settings pill's. */
+    @Override
+    public void onWatchMenu(AppAdapter.Entry e, View card) {
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        PopupWindow popup = glassPopup(panel, (int) (240 * density));
+        addSettingsMenuRow(rows, popup, R.string.watch_remove, () -> removeFromWatchNext(e));
+        addSettingsMenuRow(rows, popup, R.string.library_app_info, () -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + e.pkg))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (ActivityNotFoundException ignored) {
+            }
+        });
+        panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int width = Math.max((int) (240 * density), panel.getMeasuredWidth());
+        popup.setWidth(width);
+        panel.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
+        // The row sits low on the screen: open above the tile when the menu would not fit under it, and line it up
+        // with the tile's right edge in the right half, so it never runs off the screen.
+        int[] at = new int[2];
+        card.getLocationInWindow(at);
+        int gap = (int) (10 * density), height = panel.getMeasuredHeight();
+        boolean below = at[1] + card.getHeight() + gap + height <= root.getHeight();
+        boolean rightHalf = at[0] + card.getWidth() / 2 > root.getWidth() / 2;
+        int x = rightHalf ? at[0] + card.getWidth() - width : at[0];
+        int y = below ? at[1] + card.getHeight() + gap : at[1] - gap - height;
+        panel.setAlpha(0f);
+        popup.showAtLocation(root, Gravity.NO_GRAVITY, x, y);
+        panel.animate().alpha(1f).setDuration(reducedMotion ? Motion.REDUCED_MS : 180).start();
+        rows.getChildAt(0).requestFocus();
+    }
+
+    /** Takes a programme out of the row now and on every later read (WatchNext.hide); focus stays in its place. */
+    private void removeFromWatchNext(AppAdapter.Entry e) {
+        String key = e.component.flattenToShortString();
+        int position = adapter.positionOf(key);
+        WatchNext.hide(this, key);
+        List<AppAdapter.Entry> rest = new ArrayList<>(watchRow);
+        rest.remove(e);
+        watchRow = rest;
+        watchSignature = WatchNext.signature(rest);
+        adapter.setWatchNext(rest);
+        if (position >= 0) grid.post(() -> focusTile(position));
     }
 
     private void fillWatchShelf(String kicker, String title, String detail) {

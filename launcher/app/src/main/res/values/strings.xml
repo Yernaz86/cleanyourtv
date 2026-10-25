@@ -148,4 +148,6 @@
     <!-- Continue watching shelf: time left of the programme. -->
     <string name="watch_left_minutes">%1$d min left</string>
     <string name="watch_left_hours">%1$d h %2$d min left</string>
+    <!-- Hold OK on a Continue watching tile: takes it out of Home's row (the app's own list is untouched). -->
+    <string name="watch_remove">Remove from Continue watching</string>
 </resources>
