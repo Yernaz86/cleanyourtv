@@ -32,6 +32,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -60,7 +61,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     static final class Entry {
-        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3;
+        static final int APP = 0, HOME_SETTINGS = 1, CARD = 2, EMPTY = 3, WATCH = 4;
 
         final int kind;
         final String label;
@@ -72,12 +73,20 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final String name;
         /** Ambient glow colour; 0 until sampled from the banner, or the card's accent from the start. */
         int ambient;
+        /** What a Continue watching tile opens (WATCH only): the app's own intent URI for that programme. */
+        final String intentUri;
 
         Entry(String label, ComponentName component, Drawable banner, Drawable icon) {
             this(APP, label, component, banner, icon, null, 0);
         }
 
         Entry(int kind, String label, ComponentName component, Drawable banner, Drawable icon, String caption, int accent) {
+            this(kind, label, component, banner, icon, caption, accent, null);
+        }
+
+        Entry(int kind, String label, ComponentName component, Drawable banner, Drawable icon, String caption, int accent,
+                String intentUri) {
+            this.intentUri = intentUri;
             this.kind = kind;
             this.label = label;
             this.component = component;
@@ -203,6 +212,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Tile names and bundled banners that replace the app's own (config.xml, app_labels and app_banners). */
     private final Map<String, String> appLabels, appBanners;
     private final List<Entry> items = new ArrayList<>();
+    /** The Continue watching tiles (WatchNext), kept across reload() and put back after the dock each time. */
+    private List<Entry> watch = Collections.emptyList();
 
     AppAdapter(Context ctx, TileListener listener, int dockSize, Config cfg) {
         this.ctx = ctx;
@@ -311,9 +322,46 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             fresh.add(docked + i, new Entry(Entry.EMPTY, "", new ComponentName(ctx, "empty-dock-slot-" + i),
                     null, null, null, 0));
         }
+        addWatchRow(fresh);
         items.clear();
         items.addAll(fresh);
         notifyDataSetChanged();
+    }
+
+    /** Replaces the Continue watching row (WatchNext); an empty list removes it. */
+    void setWatchNext(List<Entry> fresh) {
+        watch = fresh;
+        List<Entry> list = new ArrayList<>(items.size());
+        for (Entry e : items) if (!isWatchRow(e)) list.add(e);
+        addWatchRow(list);
+        items.clear();
+        items.addAll(list);
+        notifyDataSetChanged();
+    }
+
+    /**
+     * Puts the Continue watching row right after the dock, padded with empty slots to a whole line so the apps
+     * start on the next one. Not while reordering (only apps move) or without a dock row to sit under.
+     */
+    private void addWatchRow(List<Entry> list) {
+        if (!dockRow || reordering || watch.isEmpty() || list.size() < dockSize) return;
+        List<Entry> row = new ArrayList<>(watch.subList(0, Math.min(watch.size(), dockSize)));
+        int pad = WatchNext.padding(row.size(), dockSize);
+        for (int i = 0; i < pad; i++) {
+            row.add(new Entry(Entry.EMPTY, "", new ComponentName(ctx, WatchNext.PAD + i), null, null, null, 0));
+        }
+        list.addAll(dockSize, row);
+    }
+
+    private static boolean isWatchRow(Entry e) {
+        return e.kind == Entry.WATCH || e.kind == Entry.EMPTY && e.component.getClassName().startsWith(WatchNext.PAD);
+    }
+
+    /** Tiles in the Continue watching row, not counting its empty slots; 0 when there is no row. */
+    int watchShown() {
+        int n = 0;
+        for (Entry e : items) if (e.kind == Entry.WATCH) n++;
+        return n;
     }
 
     /** A banner_* drawable bundled with the launcher, or null for none or a name that is not one. */
@@ -454,6 +502,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** Opens the tile's activity by explicit component, with no extras: a card can name nothing else. */
     private void launch(Entry e) {
+        if (e.kind == Entry.WATCH) {
+            openWatchNext(e);
+            return;
+        }
         if (e.kind == Entry.HOME_SETTINGS) {
             ctx.startActivity(new Intent(ctx, HomeSettingsActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -479,6 +531,22 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         } catch (Exception ex) {
             Toast.makeText(ctx, ctx.getString(R.string.cant_open, e.label), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Opens the programme behind a Continue watching tile in its own app, or the app's start screen if that fails. */
+    private void openWatchNext(Entry e) {
+        try {
+            Intent i = Intent.parseUri(e.intentUri, Intent.URI_INTENT_SCHEME);
+            // The URI comes from another app's row: it may only open that app, and carries no URI grants.
+            i.setSelector(null);
+            if (i.getComponent() != null && !e.pkg.equals(i.getComponent().getPackageName())) i.setComponent(null);
+            i.setPackage(e.pkg);
+            i.removeFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (URISyntaxException | RuntimeException ex) {
+            RemoteKeys.launch(ctx, e.pkg);
         }
     }
 
@@ -539,7 +607,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < movableCount(); i++) {
             Entry e = items.get(i);
-            if (e.kind != Entry.EMPTY) keys.add(e.component.flattenToShortString());
+            if (e.kind != Entry.EMPTY && e.kind != Entry.WATCH) keys.add(e.component.flattenToShortString());
         }
         return keys;
     }
@@ -577,7 +645,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** A position focus can land on: an empty dock slot gives the last dock app. */
     int focusablePosition(int position) {
-        return DockSlots.focusable(position, docked, emptySlots);
+        int p = DockSlots.focusable(position, docked, emptySlots);
+        // An empty slot padding the Continue watching row gives the row's last tile.
+        while (p > 0 && p < items.size() && items.get(p).kind == Entry.EMPTY && isWatchRow(items.get(p))) p--;
+        return p;
     }
 
     String labelAt(int position) {

@@ -195,6 +195,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private float density;
     /** Module cards (res/values/config.xml, module_cards): discovered on resume, shown only after the owner's Show. */
     private boolean moduleCards;
+    /** Continue watching row under the dock (config.xml, continue_watching), read on every resume (WatchNext). */
+    private boolean continueWatching;
+    private volatile boolean watchLoading;
+    private String watchSignature = "";
     /** config settings_key_keycodes / settings_key_panel, so the Settings button works on Home without HomeKeyService. */
     private int[] settingsKeycodes = new int[0];
     private boolean settingsKeyPanel;
@@ -416,6 +420,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         vpnApp = cfg.vpnApp;
         moduleCards = cfg.moduleCards;
         hiddenApps = new HashSet<>(cfg.hiddenApps);
+        continueWatching = getResources().getBoolean(R.bool.continue_watching);
 
         grid = findViewById(R.id.grid);
         rtlAppGrid = getResources().getBoolean(R.bool.rtl_app_grid);
@@ -758,6 +763,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 break;
         }
         if (openLiveTvAfterBoot()) return;
+        loadWatchNext();
         updateGreeting();
         updateRace();
         // The network and Inputs pills keep their state while Home is in the background, and callbacks update them
@@ -794,6 +800,38 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Rebuilds the tiles (and the module cards), then puts focus back where it was. */
     private void reloadApps(boolean animate) {
         reloadApps(animate, true);
+    }
+
+    /**
+     * Reads the Continue watching row off the main thread (the TV provider, then any poster not cached yet) and
+     * shows it only when it changed, so coming back to Home does not redraw the tiles each time.
+     */
+    private void loadWatchNext() {
+        if (!continueWatching || watchLoading) return;
+        watchLoading = true;
+        final int max = COLUMNS;
+        new Thread(() -> {
+            List<AppAdapter.Entry> row;
+            try {
+                row = WatchNext.entries(getApplicationContext(), max);
+            } catch (RuntimeException e) {
+                row = Collections.emptyList();   // the row is an extra: on any failure Home shows none
+            }
+            final List<AppAdapter.Entry> shown = row;
+            String signature = WatchNext.signature(shown);
+            runOnUiThread(() -> {
+                watchLoading = false;
+                if (isDestroyed() || signature.equals(watchSignature)) return;
+                watchSignature = signature;
+                // The row can land after the owner has moved: keep focus on the tile it was on, not where the
+                // rebind would leave it.
+                int focused = focusedTilePosition();
+                String key = focused >= 0 ? adapter.keyAt(focused) : null;
+                adapter.setWatchNext(shown);
+                int back = adapter.positionOf(key);
+                if (back >= 0) grid.post(() -> focusTile(back));
+            });
+        }, "watch-next").start();
     }
 
     /** @param rebuild false keeps the tiles as they are and only puts focus back (TileRefresh.Action.REFOCUS). */
@@ -1931,8 +1969,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 focusLibrary();
                 return true;
             }
-            // In the dock, the last app is the row's end: the empty slots after it take no focus.
-            int rowCount = position < COLUMNS ? Math.min(count, adapter.dockFilled()) : count;
+            // In the dock, the last app is the row's end: the empty slots after it take no focus. The same for
+            // the Continue watching row under it.
+            int watch = adapter.watchShown();
+            int rowCount = position < COLUMNS ? Math.min(count, adapter.dockFilled())
+                    : watch > 0 && position < 2 * COLUMNS ? COLUMNS + watch : count;
             return GridNavigation.atHorizontalEdge(position, rowCount, COLUMNS,
                     rtlAppGrid, keyCode == KeyEvent.KEYCODE_DPAD_LEFT);
         }

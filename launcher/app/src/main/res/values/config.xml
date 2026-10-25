@@ -223,6 +223,12 @@
          for bigger tiles when rows_below_dock is 2 or 3. -->
     <bool name="dock_title">true</bool>
 
+    <!-- Continue watching: one row of tiles right under the dock with what was last watched in other apps
+         (YouTube, Kinopoisk and others that publish to the TV's Watch Next list, docs/watch-next.md), each opening
+         that programme. Needs READ_TV_LISTINGS, which build-and-install grants; posters are fetched over https
+         and cached. Only rows an app marks searchable are visible to a launcher that is not a system app. -->
+    <bool name="continue_watching">true</bool>
+
     <!-- Tiles per row in the grid; the dock always has this many slots. Tiles are 180dp wide at 4 columns and
          shrink to fit from 5 up (about 144dp at 5, 117dp at 6 on a 1080p TV). -->
     <integer name="columns">6</integer>
