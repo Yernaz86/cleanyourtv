@@ -205,7 +205,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** The shelf a Continue watching tile shows while it has focus: backdrop, scrim, its app and title. */
     private ImageView watchArt;
     private View watchScrim, watchShelf;
-    private TextView watchKicker, watchTitle;
+    private TextView watchKicker, watchTitle, watchDetail;
     private boolean watchShelfShown;
     /** The poster watchArt shows or is loading, so moving along the row only swaps what changed. */
     private String watchArtKey;
@@ -422,6 +422,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         watchShelf = findViewById(R.id.watchShelf);
         watchKicker = findViewById(R.id.watchKicker);
         watchTitle = findViewById(R.id.watchTitle);
+        watchDetail = findViewById(R.id.watchDetail);
         watchScrim.setBackground(watchScrimDrawable());
         // One bitmap: apply its alpha while drawing instead of through an offscreen buffer.
         watchArt.forceHasOverlappingRendering(false);
@@ -1816,27 +1817,33 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void showWatchShelf(AppAdapter.Entry e) {
         String kicker = getString(R.string.continue_watching_in, e.caption);
         boolean motion = animations && !reducedMotion;
+        String detail = e.detail != null ? e.detail : "";
         if (!watchShelfShown) {
             watchShelfShown = true;
-            watchKicker.setText(kicker);
-            watchTitle.setText(e.label);
+            fillWatchShelf(kicker, e.label, detail);
             fade(clockBlock, 0f, motion ? 200 : 0);
             fade(watchShelf, 1f, motion ? 260 : 0);
             fade(watchScrim, 1f, motion ? 300 : 0);
-        } else if (!e.label.contentEquals(watchTitle.getText()) || !kicker.contentEquals(watchKicker.getText())) {
+        } else if (!e.label.contentEquals(watchTitle.getText()) || !kicker.contentEquals(watchKicker.getText())
+                || !detail.contentEquals(watchDetail.getText())) {
             if (motion) {
                 watchShelf.animate().cancel();
                 watchShelf.animate().alpha(0f).setDuration(110).withEndAction(() -> {
-                    watchKicker.setText(kicker);
-                    watchTitle.setText(e.label);
+                    fillWatchShelf(kicker, e.label, detail);
                     watchShelf.animate().alpha(1f).setDuration(200).start();
                 }).start();
             } else {
-                watchKicker.setText(kicker);
-                watchTitle.setText(e.label);
+                fillWatchShelf(kicker, e.label, detail);
             }
         }
         showWatchArt(e.artUri);
+    }
+
+    private void fillWatchShelf(String kicker, String title, String detail) {
+        watchKicker.setText(kicker);
+        watchTitle.setText(title);
+        watchDetail.setText(detail);
+        watchDetail.setVisibility(detail.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     /** The backdrop for this poster: the cached one at once, else decoded off the main thread, then cross-faded. */

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Continue watching progress bar (item_app.xml): the watched part, clipped by its level (0 to 10000). -->
+<clip xmlns:android="http://schemas.android.com/apk/res/android"
+    android:clipOrientation="horizontal"
+    android:gravity="left">
+    <shape android:shape="rectangle">
+        <solid android:color="#F2FFFFFF" />
+        <corners android:radius="2dp" />
+    </shape>
+</clip>

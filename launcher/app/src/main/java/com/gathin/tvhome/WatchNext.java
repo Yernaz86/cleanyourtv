@@ -14,6 +14,7 @@ import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.media.tv.TvContract;
+import android.text.TextUtils;
 import android.util.Log;
 
 import java.io.File;
@@ -40,8 +41,8 @@ final class WatchNext {
     static final String TILE = "watch-next/", PAD = "watch-next-pad/";
     /** The tile image: 16:9, about twice a tile's width so the focus zoom stays sharp. */
     private static final int POSTER_W = 480, POSTER_H = 270;
-    /** The backdrop behind the shelf while a tile has focus: 16:9 at two thirds of a 1080p screen. */
-    private static final int BACKDROP_W = 1280, BACKDROP_H = 720;
+    /** The backdrop behind the shelf while a tile has focus: a full 1080p screen, so it is not stretched. */
+    private static final int BACKDROP_W = 1920, BACKDROP_H = 1080;
     /** A poster larger than this is not an image an app meant for a TV row; it is not downloaded. */
     private static final int MAX_POSTER_BYTES = 2 * 1024 * 1024;
 
@@ -51,6 +52,10 @@ final class WatchNext {
         final String poster;
         final String intent;
         final long lastEngaged;
+        /** Where playback stopped and how long the programme is, in ms; 0 when the app does not say. */
+        long position, duration;
+        /** Season and episode as the app numbers them ("2", "5"), and the episode's own title; null when absent. */
+        String season, episode, episodeTitle;
 
         Item(String pkg, String title, String poster, String intent, long lastEngaged) {
             this.pkg = pkg;
@@ -74,13 +79,24 @@ final class WatchNext {
                 TvContract.WatchNextPrograms.COLUMN_INTENT_URI,
                 TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS,
                 TvContract.WatchNextPrograms.COLUMN_BROWSABLE,
+                TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
+                TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS,
+                TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER,
+                TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER,
+                TvContract.WatchNextPrograms.COLUMN_EPISODE_TITLE,
         };
         try (Cursor c = ctx.getContentResolver().query(TvContract.WatchNextPrograms.CONTENT_URI, projection,
                 null, null, null)) {
             if (c == null) return items;
             while (c.moveToNext()) {
                 if (c.getInt(5) == 0) continue;
-                items.add(new Item(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4)));
+                Item item = new Item(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4));
+                item.position = c.getLong(6);
+                item.duration = c.getLong(7);
+                item.season = emptyToNull(c.getString(8));
+                item.episode = emptyToNull(c.getString(9));
+                item.episodeTitle = emptyToNull(c.getString(10));
+                items.add(item);
             }
         } catch (RuntimeException e) {
             // SecurityException without READ_TV_LISTINGS, or a provider that is missing on this firmware.
@@ -109,7 +125,16 @@ final class WatchNext {
             }
             ComponentName component = new ComponentName(item.pkg, TILE + Integer.toHexString(item.intent.hashCode()));
             if (!components.add(component.flattenToShortString())) continue;   // two rows for the same programme
-            if (item.poster != null) posters.add(cacheName(item.poster));
+            if (item.poster != null) {
+                posters.add(cacheName(item.poster));
+                // The shelf's larger copy, fetched now so focusing the tile shows it without a wait.
+                String large = largeArt(item.poster);
+                if (!large.equals(item.poster)) {
+                    posters.add(cacheName(large));
+                    File file = new File(cacheDir(ctx), cacheName(large));
+                    if (!file.isFile()) download(large, file);
+                }
+            }
             Bitmap poster;
             try {
                 poster = poster(ctx, item.poster);
@@ -121,8 +146,11 @@ final class WatchNext {
             Drawable banner = poster != null ? new BitmapDrawable(ctx.getResources(), poster) : null;
             Drawable icon = banner == null ? pm.getApplicationIcon(app) : null;
             String appName = Cards.cleanLabel(String.valueOf(pm.getApplicationLabel(app)), item.pkg);
-            row.add(new AppAdapter.Entry(AppAdapter.Entry.WATCH, Cards.cleanLabel(item.title, appName, 120), component,
-                    banner, icon, appName, 0, item.intent, poster != null ? item.poster : null));
+            AppAdapter.Entry entry = new AppAdapter.Entry(AppAdapter.Entry.WATCH, Cards.cleanLabel(item.title, appName, 120),
+                    component, banner, icon, appName, 0, item.intent, poster != null ? item.poster : null);
+            entry.progress = progress(item.position, item.duration);
+            entry.detail = detail(ctx, item);
+            row.add(entry);
         }
         prune(ctx, posters);
         return row;
@@ -132,9 +160,50 @@ final class WatchNext {
     static String signature(List<AppAdapter.Entry> row) {
         StringBuilder sb = new StringBuilder();
         for (AppAdapter.Entry e : row) {
-            sb.append(e.component.flattenToShortString()).append(e.banner != null ? '+' : '-').append(e.label).append('\n');
+            sb.append(e.component.flattenToShortString()).append(e.banner != null ? '+' : '-').append(e.label)
+                    .append('|').append(Math.round(e.progress * 100)).append('|').append(e.detail).append('\n');
         }
         return sb.toString();
+    }
+
+    /**
+     * How far along the bar is, 0 to 1, or -1 for no bar: the app gave no duration, or nothing was watched yet (a
+     * next episode). A programme just started still shows a sliver, so the bar never looks empty.
+     */
+    static float progress(long position, long duration) {
+        if (duration <= 0 || position <= 0) return -1f;
+        return Math.max(0.03f, Math.min(1f, (float) position / duration));
+    }
+
+    /** Whole minutes left, rounded up, or -1 when the app gave no position or duration. */
+    static long minutesLeft(long position, long duration) {
+        if (duration <= 0 || position <= 0 || position >= duration) return -1;
+        return (duration - position + 59_999) / 60_000;
+    }
+
+    /**
+     * The shelf's line under the title: "Season 2, episode 5 · Pilot · 23 min left", from whatever of that the app
+     * gave; null when it gave none. An episode title that only repeats the programme's title is left out.
+     */
+    private static String detail(Context ctx, Item i) {
+        List<String> parts = new ArrayList<>();
+        if (i.season != null && i.episode != null) {
+            parts.add(ctx.getString(R.string.watch_season_episode, i.season, i.episode));
+        } else if (i.episode != null) {
+            parts.add(ctx.getString(R.string.watch_episode, i.episode));
+        }
+        if (i.episodeTitle != null && !i.episodeTitle.equals(i.title)) {
+            String episodeTitle = Cards.cleanLabel(i.episodeTitle, "", 60);
+            if (!episodeTitle.isEmpty()) parts.add(episodeTitle);
+        }
+        long left = minutesLeft(i.position, i.duration);
+        if (left >= 60) parts.add(ctx.getString(R.string.watch_left_hours, left / 60, left % 60));
+        else if (left > 0) parts.add(ctx.getString(R.string.watch_left_minutes, left));
+        return parts.isEmpty() ? null : TextUtils.join(" · ", parts);
+    }
+
+    private static String emptyToNull(String s) {
+        return s == null || s.trim().isEmpty() ? null : s.trim();
     }
 
     /** Empty slots after {@code shown} tiles so the apps start on the next line; none for an empty or full row. */
@@ -156,8 +225,27 @@ final class WatchNext {
      */
     static Bitmap backdrop(Context ctx, String url) {
         if (url == null) return null;
+        File large = new File(cacheDir(ctx), cacheName(largeArt(url)));
+        if (large.isFile()) {
+            Bitmap art = compose(large, BACKDROP_W, BACKDROP_H, true);
+            if (art != null) return art;
+        }
         File file = new File(cacheDir(ctx), cacheName(url));
         return file.isFile() ? compose(file, BACKDROP_W, BACKDROP_H, true) : null;
+    }
+
+    /**
+     * The same artwork in a size fit for the whole screen, where its CDN serves one: Kinopoisk's posters come from
+     * Yandex's get-ott store, whose last path part is the size, and its row asks for 460x690, which arrives as a
+     * 460x259 still. Any other URL is returned as it is (YouTube's hq720 is already its largest).
+     */
+    static String largeArt(String url) {
+        int slash = url.lastIndexOf('/');
+        if (!url.startsWith("https://") || !url.contains(".yandex.net/get-ott/") || slash < 0
+                || !url.substring(slash + 1).matches("\\d+x\\d+")) {
+            return url;
+        }
+        return url.substring(0, slash + 1) + "1920x1080";
     }
 
     /**
@@ -175,6 +263,7 @@ final class WatchNext {
             return null;
         }
         o.inJustDecodeBounds = false;
+        o.inPreferredConfig = Bitmap.Config.RGB_565;   // photos, no alpha: half the memory of a 1080p decode
         o.inSampleSize = 1;   // the field starts at 0
         while (o.outHeight / (o.inSampleSize * 2) >= h) o.inSampleSize *= 2;
         Bitmap src = BitmapFactory.decodeFile(file.getPath(), o);

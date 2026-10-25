@@ -77,6 +77,9 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final String intentUri;
         /** WATCH only: the poster, for the shelf's backdrop (WatchNext.backdrop), and the app it is from. */
         final String artUri, caption;
+        /** WATCH only: how far it was watched (0 to 1, -1 for no bar) and the shelf's season, episode and time left. */
+        float progress = -1f;
+        String detail;
 
         Entry(String label, ComponentName component, Drawable banner, Drawable icon) {
             this(APP, label, component, banner, icon, null, 0);
@@ -499,6 +502,12 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             h.label.setText(e.label);
             h.label.setVisibility(View.VISIBLE);
         }
+        if (e.kind == Entry.WATCH && e.progress > 0f) {
+            h.progressFill.setLevel(Math.round(e.progress * 10000));
+            h.progress.setVisibility(View.VISIBLE);
+        } else {
+            h.progress.setVisibility(View.GONE);
+        }
         h.card.setOnClickListener(v -> launch(e));
         h.card.setOnLongClickListener(v -> {
             Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + e.pkg));
@@ -747,6 +756,9 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         final ImageView icon;
         final TextView label;
         final TextView name;
+        /** Continue watching progress bar and its fill, whose level is the share watched. */
+        final View progress;
+        final Drawable progressFill;
         final boolean animations;
         final boolean advancedEffects;
         final boolean reducedMotion;
@@ -763,6 +775,9 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             icon = v.findViewById(R.id.icon);
             label = v.findViewById(R.id.label);
             name = v.findViewById(R.id.name);
+            progress = v.findViewById(R.id.progress);
+            // Its own copy: the level is per tile, the drawable resource is shared.
+            progressFill = v.findViewById(R.id.progressFill).getBackground().mutate();
             this.animations = animations;
             this.advancedEffects = advancedEffects;
             this.reducedMotion = reducedMotion;

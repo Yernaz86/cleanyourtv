@@ -142,4 +142,10 @@
     <string name="last_opened">Last opened %1$s</string>
     <!-- Continue watching shelf: the line above the focused programme's title; %1$s is its app, e.g. "YouTube". -->
     <string name="continue_watching_in">Continue watching · %1$s</string>
+    <!-- Continue watching shelf, the line under the title: the app's own season and episode numbers. -->
+    <string name="watch_season_episode">Season %1$s, episode %2$s</string>
+    <string name="watch_episode">Episode %1$s</string>
+    <!-- Continue watching shelf: time left of the programme. -->
+    <string name="watch_left_minutes">%1$d min left</string>
+    <string name="watch_left_hours">%1$d h %2$d min left</string>
 </resources>

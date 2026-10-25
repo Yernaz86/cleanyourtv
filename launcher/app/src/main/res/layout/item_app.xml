@@ -47,6 +47,25 @@
             android:textSize="13sp"
             android:fontFamily="@font/outfit"
             android:visibility="gone" />
+
+        <!-- Continue watching tiles: how far the programme was watched, when its app says (WatchNext). -->
+        <FrameLayout
+            android:id="@+id/progress"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="10dp"
+            android:layout_marginEnd="10dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/progress_track"
+            android:visibility="gone">
+
+            <View
+                android:id="@+id/progressFill"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/progress_fill" />
+        </FrameLayout>
     </FrameLayout>
 
     <TextView

@@ -201,6 +201,21 @@
             android:letterSpacing="-0.01"
             android:lineSpacingMultiplier="0.95"
             android:includeFontPadding="false" />
+
+        <!-- Season, episode and time left, when the app gives them (WatchNext.detail). -->
+        <TextView
+            android:id="@+id/watchDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:maxWidth="380dp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:textColor="#CCFFFFFF"
+            android:textSize="15sp"
+            android:fontFamily="@font/outfit_regular"
+            android:letterSpacing="0.02"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
