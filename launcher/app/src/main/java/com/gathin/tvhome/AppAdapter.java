@@ -75,18 +75,22 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         int ambient;
         /** What a Continue watching tile opens (WATCH only): the app's own intent URI for that programme. */
         final String intentUri;
+        /** WATCH only: the poster, for the shelf's backdrop (WatchNext.backdrop), and the app it is from. */
+        final String artUri, caption;
 
         Entry(String label, ComponentName component, Drawable banner, Drawable icon) {
             this(APP, label, component, banner, icon, null, 0);
         }
 
         Entry(int kind, String label, ComponentName component, Drawable banner, Drawable icon, String caption, int accent) {
-            this(kind, label, component, banner, icon, caption, accent, null);
+            this(kind, label, component, banner, icon, caption, accent, null, null);
         }
 
         Entry(int kind, String label, ComponentName component, Drawable banner, Drawable icon, String caption, int accent,
-                String intentUri) {
+                String intentUri, String artUri) {
             this.intentUri = intentUri;
+            this.artUri = artUri;
+            this.caption = caption;
             this.kind = kind;
             this.label = label;
             this.component = component;
@@ -355,6 +359,13 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     private static boolean isWatchRow(Entry e) {
         return e.kind == Entry.WATCH || e.kind == Entry.EMPTY && e.component.getClassName().startsWith(WatchNext.PAD);
+    }
+
+    /** The Continue watching tile at this position, or null for any other tile. */
+    Entry watchAt(int position) {
+        if (position < 0 || position >= items.size()) return null;
+        Entry e = items.get(position);
+        return e.kind == Entry.WATCH ? e : null;
     }
 
     /** Tiles in the Continue watching row, not counting its empty slots; 0 when there is no row. */

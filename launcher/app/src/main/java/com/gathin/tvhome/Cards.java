@@ -466,8 +466,13 @@ final class Cards {
      * characters (never cutting a surrogate pair), the fallback (package name) when nothing is left.
      */
     static String cleanLabel(String s, String fallback) {
+        return cleanLabel(s, fallback, 40);
+    }
+
+    /** The same with room for {@code max} characters (a programme title, which its TextView ellipsizes itself). */
+    static String cleanLabel(String s, String fallback, int max) {
         if (s == null) return fallback;
-        StringBuilder b = new StringBuilder(Math.min(s.length(), 48));
+        StringBuilder b = new StringBuilder(Math.min(s.length(), max + 8));
         boolean space = true;   // leading spaces are dropped too
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
@@ -481,7 +486,7 @@ final class Cards {
                 continue;
             }
             boolean pair = Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1));
-            if (b.length() + (pair ? 2 : 1) > 40) break;
+            if (b.length() + (pair ? 2 : 1) > max) break;
             b.append(c);
             if (pair) b.append(s.charAt(++i));
             space = false;

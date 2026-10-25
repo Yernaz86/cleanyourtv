@@ -30,6 +30,23 @@
         android:layout_height="match_parent"
         android:alpha="0" />
 
+    <!-- Continue watching shelf (WatchNext): while one of its tiles has focus, that programme's artwork fills
+         the screen behind everything, darkened towards the title and the dock by the scrim over it. -->
+    <ImageView
+        android:id="@+id/watchArt"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0"
+        android:importantForAccessibility="no" />
+
+    <View
+        android:id="@+id/watchScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:importantForAccessibility="no" />
+
     <!-- Race-weekend panel (a theme's race_calendar, see RaceWeekend): in the free space under the clock,
          shown only from shortly before a weekend's first session until the race is over. Updated once a
          minute with the clock, never animated. -->
@@ -144,6 +161,46 @@
             android:layout_marginTop="16dp"
             android:orientation="horizontal"
             android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Continue watching shelf: the focused programme's app and title, in the clock's place while the clock
+         fades out. Narrow enough to stay clear of the top-bar pills. -->
+    <LinearLayout
+        android:id="@+id/watchShelf"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|left"
+        android:layout_marginStart="60dp"
+        android:layout_marginTop="26dp"
+        android:orientation="vertical"
+        android:alpha="0"
+        android:importantForAccessibility="no">
+
+        <TextView
+            android:id="@+id/watchKicker"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:singleLine="true"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="@font/outfit_medium"
+            android:letterSpacing="0.22"
+            android:textAllCaps="true" />
+
+        <TextView
+            android:id="@+id/watchTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:maxWidth="380dp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="34sp"
+            android:fontFamily="@font/outfit_light"
+            android:letterSpacing="-0.01"
+            android:lineSpacingMultiplier="0.95"
+            android:includeFontPadding="false" />
     </LinearLayout>
 
     <LinearLayout

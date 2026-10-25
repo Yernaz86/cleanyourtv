@@ -40,6 +40,8 @@ final class WatchNext {
     static final String TILE = "watch-next/", PAD = "watch-next-pad/";
     /** The tile image: 16:9, about twice a tile's width so the focus zoom stays sharp. */
     private static final int POSTER_W = 480, POSTER_H = 270;
+    /** The backdrop behind the shelf while a tile has focus: 16:9 at two thirds of a 1080p screen. */
+    private static final int BACKDROP_W = 1280, BACKDROP_H = 720;
     /** A poster larger than this is not an image an app meant for a TV row; it is not downloaded. */
     private static final int MAX_POSTER_BYTES = 2 * 1024 * 1024;
 
@@ -119,8 +121,8 @@ final class WatchNext {
             Drawable banner = poster != null ? new BitmapDrawable(ctx.getResources(), poster) : null;
             Drawable icon = banner == null ? pm.getApplicationIcon(app) : null;
             String appName = Cards.cleanLabel(String.valueOf(pm.getApplicationLabel(app)), item.pkg);
-            row.add(new AppAdapter.Entry(AppAdapter.Entry.WATCH, Cards.cleanLabel(item.title, appName), component,
-                    banner, icon, appName, 0, item.intent));
+            row.add(new AppAdapter.Entry(AppAdapter.Entry.WATCH, Cards.cleanLabel(item.title, appName, 120), component,
+                    banner, icon, appName, 0, item.intent, poster != null ? item.poster : null));
         }
         prune(ctx, posters);
         return row;
@@ -145,6 +147,26 @@ final class WatchNext {
         if (url == null || !url.startsWith("https://")) return null;
         File file = new File(cacheDir(ctx), cacheName(url));
         if (!file.isFile() && !download(url, file)) return null;
+        return compose(file, POSTER_W, POSTER_H, false);
+    }
+
+    /**
+     * The shelf's backdrop for a tile's poster, from the copy the row already cached (no network, so it can run
+     * on every focus change); null when it is not cached or cannot be decoded. Off the main thread.
+     */
+    static Bitmap backdrop(Context ctx, String url) {
+        if (url == null) return null;
+        File file = new File(cacheDir(ctx), cacheName(url));
+        return file.isFile() ? compose(file, BACKDROP_W, BACKDROP_H, true) : null;
+    }
+
+    /**
+     * Draws the image in {@code file} into a {@code w}×{@code h} bitmap: a landscape image fills it, a portrait
+     * poster (Kinopoisk) stands at full height over a dimmed blur of its own colours, a tiny copy stretched across,
+     * which costs nothing next to a real blur. {@code atEnd} puts the poster towards the right, leaving the left
+     * side to the shelf's title.
+     */
+    private static Bitmap compose(File file, int w, int h, boolean atEnd) {
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getPath(), o);
@@ -154,35 +176,33 @@ final class WatchNext {
         }
         o.inJustDecodeBounds = false;
         o.inSampleSize = 1;   // the field starts at 0
-        while (o.outHeight / (o.inSampleSize * 2) >= POSTER_H) o.inSampleSize *= 2;
+        while (o.outHeight / (o.inSampleSize * 2) >= h) o.inSampleSize *= 2;
         Bitmap src = BitmapFactory.decodeFile(file.getPath(), o);
         if (src == null) return null;
-        Bitmap out = Bitmap.createBitmap(POSTER_W, POSTER_H, Bitmap.Config.RGB_565);
+        Bitmap out = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565);
         Canvas canvas = new Canvas(out);
         Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
-        Rect tile = new Rect(0, 0, POSTER_W, POSTER_H);
+        Rect whole = new Rect(0, 0, w, h);
         float aspect = (float) src.getWidth() / src.getHeight();
         if (AppAdapter.isBannerShaped(src.getWidth(), src.getHeight())) {
-            canvas.drawBitmap(src, centerCrop(src.getWidth(), src.getHeight()), tile, paint);
+            canvas.drawBitmap(src, centerCrop(src.getWidth(), src.getHeight(), w, h), whole, paint);
         } else {
-            // A portrait poster (Kinopoisk) at full height, over a dimmed blur of its own colours: a tiny copy
-            // stretched across the tile, which costs nothing next to a real blur.
             Bitmap tiny = Bitmap.createScaledBitmap(src, 8, Math.max(1, Math.round(8 / aspect)), true);
             paint.setColorFilter(new LightingColorFilter(0xFF5A5A5A, 0));
-            canvas.drawBitmap(tiny, centerCrop(tiny.getWidth(), tiny.getHeight()), tile, paint);
+            canvas.drawBitmap(tiny, centerCrop(tiny.getWidth(), tiny.getHeight(), w, h), whole, paint);
             paint.setColorFilter(null);
             tiny.recycle();
-            int w = Math.round(POSTER_H * aspect), left = (POSTER_W - w) / 2;
-            canvas.drawBitmap(src, null, new Rect(left, 0, left + w, POSTER_H), paint);
+            int pw = Math.round(h * aspect), left = atEnd ? w - pw - w / 10 : (w - pw) / 2;
+            canvas.drawBitmap(src, null, new Rect(left, 0, left + pw, h), paint);
         }
         src.recycle();
         return out;
     }
 
-    /** The part of a {@code w}×{@code h} image that fills a 16:9 tile, centred. */
-    private static Rect centerCrop(int w, int h) {
-        float scale = Math.max((float) POSTER_W / w, (float) POSTER_H / h);
-        int cw = Math.round(POSTER_W / scale), ch = Math.round(POSTER_H / scale);
+    /** The part of a {@code w}×{@code h} image that fills a {@code dw}×{@code dh} frame, centred. */
+    private static Rect centerCrop(int w, int h, int dw, int dh) {
+        float scale = Math.max((float) dw / w, (float) dh / h);
+        int cw = Math.round(dw / scale), ch = Math.round(dh / scale);
         int x = (w - cw) / 2, y = (h - ch) / 2;
         return new Rect(x, y, x + cw, y + ch);
     }

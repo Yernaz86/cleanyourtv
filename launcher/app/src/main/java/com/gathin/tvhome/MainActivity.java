@@ -84,10 +84,13 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * tvOS style home: black, a pinned dock row, an app grid, and one glass highlight that springs between tiles.
@@ -199,6 +202,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean continueWatching;
     private volatile boolean watchLoading;
     private String watchSignature = "";
+    /** The shelf a Continue watching tile shows while it has focus: backdrop, scrim, its app and title. */
+    private ImageView watchArt;
+    private View watchScrim, watchShelf;
+    private TextView watchKicker, watchTitle;
+    private boolean watchShelfShown;
+    /** The poster watchArt shows or is loading, so moving along the row only swaps what changed. */
+    private String watchArtKey;
+    /** The last few backdrops: moving back and forth along the row does not decode them again. */
+    private final Map<String, Bitmap> watchArtCache = new LinkedHashMap<String, Bitmap>(4, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
+            return size() > 3;
+        }
+    };
+    private final ExecutorService watchArtLoader = Executors.newSingleThreadExecutor();
+    private static final float WATCH_ART_ALPHA = 0.8f;
     /** config settings_key_keycodes / settings_key_panel, so the Settings button works on Home without HomeKeyService. */
     private int[] settingsKeycodes = new int[0];
     private boolean settingsKeyPanel;
@@ -399,6 +417,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!cfg.dockTitle) hero.setVisibility(View.GONE);
         greeting = findViewById(R.id.greeting);
         clockBlock = findViewById(R.id.leftBlock);
+        watchArt = findViewById(R.id.watchArt);
+        watchScrim = findViewById(R.id.watchScrim);
+        watchShelf = findViewById(R.id.watchShelf);
+        watchKicker = findViewById(R.id.watchKicker);
+        watchTitle = findViewById(R.id.watchTitle);
+        watchScrim.setBackground(watchScrimDrawable());
+        // One bitmap: apply its alpha while drawing instead of through an offscreen buffer.
+        watchArt.forceHasOverlappingRendering(false);
         greetingColor = greeting.getCurrentTextColor();
         btnWifi = findViewById(R.id.btnWifi);
         shamsiDate = findViewById(R.id.shamsiDate);
@@ -621,7 +647,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Hide the glass when focus leaves the tiles.
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
             boolean onTile = newF != null && newF.getId() == R.id.card;
-            if (!onTile) hideGlass();
+            if (!onTile) {
+                hideGlass();
+                hideWatchShelf();
+            }
         });
 
         packageFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -1000,6 +1029,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.getRecycledViewPool().clear();
         heroArtCache.clear();
         heroArtKey = null;
+        watchArtCache.clear();
+        watchArt.setImageDrawable(null);
+        watchArtKey = null;
         tileRefresh.invalidate();
     }
 
@@ -1015,6 +1047,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        watchArtLoader.shutdownNow();
         unregisterReceiver(packageReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -1423,11 +1456,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (!animations || reducedMotion) grid.scrollBy(0, dy);
                 else grid.smoothScrollBy(0, dy);
             }
+            hideWatchShelf();
             showHero(position, scroll ? r.top - dy : r.top);
         } else {
             // Below the dock (or in a plain grid) the glow follows the tile without the big name; letting it
             // fade out left the grid on plain black.
             showGlowOnly(position);
+            AppAdapter.Entry watch = adapter.watchAt(position);
+            if (watch != null) showWatchShelf(watch);
+            else hideWatchShelf();
             // Scroll just enough so the whole glass (not only the tile) is visible.
             revealRect.set(0, -(int) pad * 2, item.getWidth(), item.getHeight() + (int) pad);
             grid.requestChildRectangleOnScreen(item, revealRect, reducedMotion);
@@ -1554,6 +1591,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         BitmapDrawable scrim = new BitmapDrawable(getResources(), bmp);
         scrim.setGravity(Gravity.FILL);
         return scrim;
+    }
+
+    /**
+     * The Continue watching shelf's scrim: the cinematic one, plus a darker top edge, since programme artwork is
+     * often bright sky right where the title and the top-bar pills sit.
+     */
+    private Drawable watchScrimDrawable() {
+        BitmapDrawable base = (BitmapDrawable) scrimDrawable();
+        Bitmap bmp = base.getBitmap();
+        Canvas canvas = new Canvas(bmp);
+        Paint paint = new Paint();
+        paint.setShader(new LinearGradient(0, 0, 0, bmp.getHeight(),
+                new int[]{0xA6060406, 0x00060406}, new float[]{0f, 0.36f}, Shader.TileMode.CLAMP));
+        canvas.drawRect(0, 0, bmp.getWidth(), bmp.getHeight(), paint);
+        return base;
     }
 
     /** Swaps the backdrop to this app's artwork: fade out, swap, fade in, the way the shelf's name changes. */
@@ -1756,6 +1808,101 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             ambient.setAlpha(0f);
             heroArt.setAlpha(0f);
         }
+    }
+
+    // ---- Continue watching shelf -----------------------------------------------------------------
+
+    /** The focused programme's shelf: its app and title in the clock's place, its artwork behind everything. */
+    private void showWatchShelf(AppAdapter.Entry e) {
+        String kicker = getString(R.string.continue_watching_in, e.caption);
+        boolean motion = animations && !reducedMotion;
+        if (!watchShelfShown) {
+            watchShelfShown = true;
+            watchKicker.setText(kicker);
+            watchTitle.setText(e.label);
+            fade(clockBlock, 0f, motion ? 200 : 0);
+            fade(watchShelf, 1f, motion ? 260 : 0);
+            fade(watchScrim, 1f, motion ? 300 : 0);
+        } else if (!e.label.contentEquals(watchTitle.getText()) || !kicker.contentEquals(watchKicker.getText())) {
+            if (motion) {
+                watchShelf.animate().cancel();
+                watchShelf.animate().alpha(0f).setDuration(110).withEndAction(() -> {
+                    watchKicker.setText(kicker);
+                    watchTitle.setText(e.label);
+                    watchShelf.animate().alpha(1f).setDuration(200).start();
+                }).start();
+            } else {
+                watchKicker.setText(kicker);
+                watchTitle.setText(e.label);
+            }
+        }
+        showWatchArt(e.artUri);
+    }
+
+    /** The backdrop for this poster: the cached one at once, else decoded off the main thread, then cross-faded. */
+    private void showWatchArt(String url) {
+        boolean motion = animations && !reducedMotion;
+        if (url == null) {
+            watchArtKey = null;
+            fade(watchArt, 0f, motion ? 200 : 0);
+            return;
+        }
+        if (url.equals(watchArtKey)) {
+            fade(watchArt, WATCH_ART_ALPHA, motion ? 420 : 0);
+            return;
+        }
+        watchArtKey = url;
+        Bitmap cached = watchArtCache.get(url);
+        if (cached != null) {
+            swapWatchArt(cached);
+            return;
+        }
+        Context app = getApplicationContext();
+        watchArtLoader.execute(() -> {
+            Bitmap art;
+            try {
+                art = WatchNext.backdrop(app, url);
+            } catch (RuntimeException ex) {
+                art = null;   // no backdrop for this one; the shelf's text still shows
+            }
+            final Bitmap loaded = art;
+            runOnUiThread(() -> {
+                if (isDestroyed() || loaded == null) return;
+                watchArtCache.put(url, loaded);
+                if (url.equals(watchArtKey) && watchShelfShown) swapWatchArt(loaded);
+            });
+        });
+    }
+
+    private void swapWatchArt(Bitmap art) {
+        boolean motion = animations && !reducedMotion;
+        watchArt.animate().cancel();
+        if (!motion || watchArt.getAlpha() == 0f) {
+            watchArt.setImageBitmap(art);
+            fade(watchArt, WATCH_ART_ALPHA, motion ? 500 : 0);
+            return;
+        }
+        watchArt.animate().alpha(0f).setDuration(140).withEndAction(() -> {
+            watchArt.setImageBitmap(art);
+            watchArt.animate().alpha(WATCH_ART_ALPHA).setDuration(420).start();
+        }).start();
+    }
+
+    /** Focus left the Continue watching row: the clock comes back and the artwork fades out. */
+    private void hideWatchShelf() {
+        if (!watchShelfShown) return;
+        watchShelfShown = false;
+        boolean motion = animations && !reducedMotion;
+        fade(watchShelf, 0f, motion ? 160 : 0);
+        fade(watchScrim, 0f, motion ? 300 : 0);
+        fade(watchArt, 0f, motion ? 300 : 0);
+        fade(clockBlock, 1f, motion ? 260 : 0);
+    }
+
+    private static void fade(View v, float to, int ms) {
+        v.animate().cancel();
+        if (ms == 0) v.setAlpha(to);
+        else v.animate().alpha(to).setDuration(ms).start();
     }
 
     private void hideGlass() {

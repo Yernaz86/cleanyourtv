@@ -140,4 +140,6 @@
     <!-- Cinematic top shelf (cinematic_home): the line under the focused dock app's name; %1$s is when it was
          last opened, e.g. "5 minutes ago" or "yesterday, 9:40 pm". -->
     <string name="last_opened">Last opened %1$s</string>
+    <!-- Continue watching shelf: the line above the focused programme's title; %1$s is its app, e.g. "YouTube". -->
+    <string name="continue_watching_in">Continue watching · %1$s</string>
 </resources>
